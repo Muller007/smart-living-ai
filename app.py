@@ -1,24 +1,21 @@
-from flask import Flask, request, jsonify
+from flask import Flask, request
 from database import engine, SessionLocal, Base
 from models import Transaction
 from utils import parse_message
 
+# ✅ CREATE APP FIRST
 app = Flask(__name__)
 
-# Create tables
+# ✅ CREATE DATABASE TABLES
 Base.metadata.create_all(bind=engine)
 
 
 @app.route("/webhook", methods=["POST"])
 def webhook():
-    data = request.json
-
-    # simulate WhatsApp structure
-    message = data.get("message")
-    phone = data.get("phone")
+    message = request.form.get("Body")
+    phone = request.form.get("From")
 
     session = SessionLocal()
-
     parsed = parse_message(message)
 
     if parsed["type"] in ["income", "expense"]:
@@ -31,9 +28,7 @@ def webhook():
         session.add(transaction)
         session.commit()
 
-        return jsonify({
-            "reply": f"{parsed['type']} of R{parsed['amount']} recorded ✅"
-        })
+        reply = f"{parsed['type']} of R{parsed['amount']} recorded ✅"
 
     elif parsed["type"] == "summary":
         transactions = session.query(Transaction).filter_by(user_phone=phone).all()
@@ -42,11 +37,12 @@ def webhook():
         expense = sum(t.amount for t in transactions if t.type == "expense")
         profit = income - expense
 
-        return jsonify({
-            "reply": f"📊 Income: R{income}, Expense: R{expense}, Profit: R{profit}"
-        })
+        reply = f"📊 Income: R{income}, Expense: R{expense}, Profit: R{profit}"
 
-    return jsonify({"reply": "Sorry, I didn't understand. Try: 'I sold 100'"})
+    else:
+        reply = "Try: 'I sold 100' or 'I spent 50'"
+
+    return f"<Response><Message>{reply}</Message></Response>"
 
 
 if __name__ == "__main__":
