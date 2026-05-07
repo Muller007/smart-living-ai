@@ -1,48 +1,59 @@
 from flask import Flask, request
 from database import engine, SessionLocal, Base
 from models import Transaction
-from utils import parse_message
+from ai_engine import process_message
 
-# ✅ CREATE APP FIRST
+# Create Flask app
 app = Flask(__name__)
 
-# ✅ CREATE DATABASE TABLES
+# Create database tables
 Base.metadata.create_all(bind=engine)
 
 
 @app.route("/webhook", methods=["POST"])
 def webhook():
-    message = request.form.get("Body")
-    phone = request.form.get("From")
+    try:
+        message = request.form.get("Body")
+        phone = request.form.get("From")
 
-    session = SessionLocal()
-    parsed = parse_message(message)
+        print(f"\n📩 Incoming message from {phone}: {message}")
 
-    if parsed["type"] in ["income", "expense"]:
-        transaction = Transaction(
-            user_phone=phone,
-            type=parsed["type"],
-            amount=parsed["amount"],
-            description=parsed["description"]
-        )
-        session.add(transaction)
+        session = SessionLocal()
+
+        # 🚀 YOUR LOCAL AI ENGINE (NO OPENAI)
+        ai_result = process_message(message)
+
+        print(f"🤖 Processed Output: {ai_result}")
+
+        income = ai_result.get("income")
+        expense = ai_result.get("expense")
+        reply = ai_result.get("reply")
+
+        # Store income
+        if income is not None:
+            session.add(Transaction(
+                user_phone=phone,
+                type="income",
+                amount=float(income),
+                description=message
+            ))
+
+        # Store expense
+        if expense is not None:
+            session.add(Transaction(
+                user_phone=phone,
+                type="expense",
+                amount=float(expense),
+                description=message
+            ))
+
         session.commit()
 
-        reply = f"{parsed['type']} of R{parsed['amount']} recorded ✅"
+        return f"<Response><Message>{reply}</Message></Response>"
 
-    elif parsed["type"] == "summary":
-        transactions = session.query(Transaction).filter_by(user_phone=phone).all()
-
-        income = sum(t.amount for t in transactions if t.type == "income")
-        expense = sum(t.amount for t in transactions if t.type == "expense")
-        profit = income - expense
-
-        reply = f"📊 Income: R{income}, Expense: R{expense}, Profit: R{profit}"
-
-    else:
-        reply = "Try: 'I sold 100' or 'I spent 50'"
-
-    return f"<Response><Message>{reply}</Message></Response>"
+    except Exception as e:
+        print("❌ Error:", str(e))
+        return "<Response><Message>Error occurred</Message></Response>"
 
 
 if __name__ == "__main__":
